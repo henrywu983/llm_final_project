@@ -143,4 +143,6 @@ tmux attach -t grpo      # reconnect later to check on it
 | Error mentioning a path like `@ file:///...` | Delete that line from `requirements.txt` and reinstall. |
 | `CUDA out of memory` | Lower `gpu_memory_utilization` and `MAX_COMPLETION_LEN` (see section 5), and check nobody else is using the GPU. |
 | `no kernel image is available` on RTX 50-series | Your PyTorch is too old for the card. Reinstall with the cu130 index from step 3. |
+| `vLLM >= 0.28 moved bitsandbytes out of tree` | Run `pip install vllm-bnb-plugin`. |
+| `SyntaxError` inside `cutlass/_mlir/.../_cute_nvgpu_ops_gen.py` | Corrupted download. Run `pip install --force-reinstall --no-deps --no-cache-dir nvidia-cutlass-dsl-libs-base==4.7.1`. If it persists, `pip uninstall -y nvidia-cutlass-dsl nvidia-cutlass-dsl-libs-base` (optional feature). |
 | Anything else | Paste the full error in the group chat. |
