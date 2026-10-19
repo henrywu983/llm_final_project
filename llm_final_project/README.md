@@ -126,7 +126,12 @@ The `_test` suffix keeps it out of the real run's folder. Delete `outputs/arm1_g
 ### Step 3: the real run (inside `tmux`)
 
 ```bash
+tmux new -s <your arm name>
 python train.py --config configs/<your arm>.yaml --seed 0
+```
+
+```bash
+tmux attach -t <your arm name> # reconnects to it later.
 ```
 
 - **Out of memory?** Add `--set machine.gpu_memory_utilization=0.35`. This only changes memory use, not results.
