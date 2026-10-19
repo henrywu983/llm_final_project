@@ -1,0 +1,12 @@
+# Arm 2: Dr. GRPO (Liu et al., 2025).
+# Removes both GRPO biases: the loss is normalized by a constant
+# (max_completion_length) instead of each answer's length, and rewards are
+# not divided by the group std.
+inherit: base.yaml
+
+experiment:
+  name: arm2_dr_grpo
+
+grpo:
+  loss_type: dr_grpo
+  scale_rewards: none

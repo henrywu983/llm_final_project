@@ -1,0 +1,19 @@
+# Arm 3: standard GRPO + uniform length penalty (Arora & Zanette, 2025).
+# Same optimizer as arm 1; only the reward changes. Correct answers get
+#   reward = 1 - coef * sigmoid(z),
+# where z is the answer's length z-score among the correct answers to the
+# same question. Incorrect answers get no length term.
+inherit: base.yaml
+
+experiment:
+  name: arm3_length_penalty
+
+grpo:
+  loss_type: grpo
+  scale_rewards: group
+
+reward:
+  length_penalty:
+    enabled: true
+    type: arora_zanette
+    coef: 0.2

@@ -1,0 +1,10 @@
+# Arm 1: standard GRPO (Shao et al., 2024).
+# Per-sequence length normalization (1/|o_i|) and group std scaling.
+inherit: base.yaml
+
+experiment:
+  name: arm1_grpo
+
+grpo:
+  loss_type: grpo
+  scale_rewards: group
