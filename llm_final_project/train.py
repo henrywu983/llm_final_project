@@ -147,6 +147,9 @@ def main():
     finally:
         if not args.dry_run:
             record.finish(status)
+        # Stop copying output to the log before closing it, so messages printed
+        # while Python shuts down don't try to write to a closed file.
+        sys.stdout, sys.stderr = sys.__stdout__, sys.__stderr__
         log_file.close()
 
 
