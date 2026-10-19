@@ -28,7 +28,7 @@ You also need **conda** (Miniconda or Anaconda). Check with `conda --version`.
 ```bash
 mkdir -p ~/projects
 cd ~/projects
-git clone https://github.com/<your-github-username>/llm_final_project.git
+git clone https://github.com/henrywu983/llm_final_project.git
 cd llm_final_project
 ```
 
