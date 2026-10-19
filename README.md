@@ -145,4 +145,5 @@ tmux attach -t grpo      # reconnect later to check on it
 | `no kernel image is available` on RTX 50-series | Your PyTorch is too old for the card. Reinstall with the cu130 index from step 3. |
 | `vLLM >= 0.28 moved bitsandbytes out of tree` | Run `pip install vllm-bnb-plugin`. |
 | `SyntaxError` inside `cutlass/_mlir/.../_cute_nvgpu_ops_gen.py` | Corrupted download. Run `pip install --force-reinstall --no-deps --no-cache-dir nvidia-cutlass-dsl-libs-base==4.7.1`. If it persists, `pip uninstall -y nvidia-cutlass-dsl nvidia-cutlass-dsl-libs-base` (optional feature). |
+| `FlashInfer ... SM 12.x requires CUDA >= 12.9` (RTX 50-series) | The server's system `nvcc` is too old. Install a newer one inside the env: `conda install -y -c nvidia cuda-nvcc=13.0`, then `conda env config vars set CUDA_HOME=$CONDA_PREFIX`, re-activate the env, run `rm -rf ~/.cache/flashinfer`, and rerun. Check with `nvcc --version` (should say 13.0). |
 | Anything else | Paste the full error in the group chat. |
