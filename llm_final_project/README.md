@@ -131,7 +131,20 @@ python train.py --config configs/<your arm>.yaml --seed 0
 ```
 
 ```bash
-tmux attach -t <your arm name> # reconnects to it later.
+# reconnects to it later.
+tmux attach -t <your arm name>
+
+# List all running sessions
+tmux ls
+
+# Detach, training keeps running:
+Ctrl+b, then d
+
+# Stop the training run:
+Ctrl+c (inside the session)
+
+# Stop a finished or stuck session
+tmux kill-session -t <arm_name>
 ```
 
 - **Out of memory?** Add `--set machine.gpu_memory_utilization=0.35`. This only changes memory use, not results.
