@@ -226,6 +226,23 @@ def make_plots(df: pd.DataFrame, root: Path, out: Path) -> None:
             ax.plot(s.step, s[col].rolling(10, min_periods=1).mean(), label=run_dir.name)
             ax.set_title(title)
             ax.set_xlabel("training step")
+    # Training did not log entropy: fall back to the evaluation estimate at each checkpoint.
+    if not found[2] and "entropy" in df.columns and df["entropy"].notna().any():
+        ev = df[df["entropy"].notna()]
+        bench = "math500" if (ev.benchmark == "math500").any() else ev.benchmark.iloc[0]
+        ev = ev[ev.benchmark == bench]
+        base = ev[ev.run == "base"]
+        for run, a in ev[ev.run != "base"].groupby("run"):
+            g = a.groupby("step")["entropy"].mean().sort_index()
+            if not base.empty:  # start each curve from the untrained model at step 0
+                g = pd.concat([pd.Series({0: base["entropy"].mean()}), g])
+            axes[2].plot(g.index, g.values, marker="o", ms=3, label=run)
+        if not base.empty:
+            axes[2].axhline(base["entropy"].mean(), color="gray", linestyle="--", label="base")
+        axes[2].set_title(f"entropy (eval at checkpoints, {bench})")
+        axes[2].set_xlabel("training step")
+        axes[2].legend(fontsize=7)
+        found[2] = True
     for ax, (title, _), ok in zip(axes, panels, found):
         if not ok:
             ax.set_title(title)
