@@ -18,6 +18,11 @@ Output, one folder per checkpoint:
     <run>/eval/<tag>/<checkpoint>/<benchmark>_summary.json   pass@k, length, truncation, ...
     (base model: outputs/base_model/eval/<tag>/base/...)
 
+Each sample also stores `nll`, the mean negative log-probability of the tokens it
+sampled. Averaged over samples (weighted by tokens), this estimates the policy's
+per-token entropy at the evaluation temperature, since E[-log p(token)] over
+sampled tokens is the entropy. We use it because training does not log entropy.
+
 Then run analyze.py to compute pass@k curves, AES and per-difficulty tables.
 """
 
@@ -51,6 +56,7 @@ def parse_args():
     p.add_argument("--gpu-memory-utilization", type=float, default=None)
     p.add_argument("--workers", type=int, default=8, help="CPU processes for grading")
     p.add_argument("--overwrite", action="store_true", help="redo results that already exist")
+    p.add_argument("--no-entropy", action="store_true", help="skip the per-token log-probabilities")
     return p.parse_args()
 
 
@@ -122,18 +128,34 @@ def main():
     from vllm.lora.request import LoRARequest
 
     use_lora = any(path for _, path, _ in todo)
-    llm = LLM(
+    llm_kwargs = dict(
         model=ecfg["model_name"], enable_lora=use_lora,
         max_lora_rank=cfg["model"]["lora_rank"] if use_lora else 16,
         max_model_len=1024 + ecfg["max_tokens"], seed=ecfg["seed"],
         gpu_memory_utilization=args.gpu_memory_utilization or ecfg["gpu_memory_utilization"],
     )
+    want_lp = not args.no_entropy
+    logprobs_mode = None
+    if want_lp:
+        # "processed" = log-probs after temperature/top-p, i.e. of the distribution we
+        # actually sample from. Older vLLM versions only return raw log-probs.
+        try:
+            llm = LLM(**llm_kwargs, logprobs_mode="processed_logprobs")
+            logprobs_mode = "processed_logprobs"
+        except TypeError:
+            llm = LLM(**llm_kwargs)
+            logprobs_mode = "raw_logprobs"
+            print("[eval] this vLLM has no logprobs_mode; nll uses the raw (temperature 1) model "
+                  "log-probs, so it is a cross-entropy rather than an exact entropy estimate")
+    else:
+        llm = LLM(**llm_kwargs)
     tokenizer = llm.get_tokenizer()
     prompts = {b: [tokenizer.apply_chat_template(build_messages(r["question"], instruction),
                                                  tokenize=False, add_generation_prompt=True)
                    for r in rows] for b, rows in problems.items()}
     sampling = SamplingParams(n=n, temperature=ecfg["temperature"], top_p=ecfg["top_p"],
-                              max_tokens=ecfg["max_tokens"], seed=ecfg["seed"])
+                              max_tokens=ecfg["max_tokens"], seed=ecfg["seed"],
+                              logprobs=0 if want_lp else None)
 
     lora_ids = {}
     for name, path, bench in todo:
@@ -162,7 +184,7 @@ def main():
                 for o in out.outputs:
                     samples.append(dict(text=o.text, n_tokens=len(o.token_ids),
                                         finish_reason=o.finish_reason, correct=correct[idx],
-                                        boxed=has_boxed(o.text)))
+                                        boxed=has_boxed(o.text), nll=sample_nll(o)))
                     idx += 1
                 rec = dict(question_id=r["question_id"], level=r["level"], answer=r["answer"],
                            n=len(samples), n_correct=sum(s["correct"] for s in samples), samples=samples)
@@ -170,15 +192,34 @@ def main():
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
         summary = summarize(records)
-        summary.update(checkpoint=name, benchmark=bench, tag=args.tag, adapter=path,
+        summary.update(logprobs_mode=logprobs_mode, checkpoint=name, benchmark=bench, tag=args.tag, adapter=path,
                        model=ecfg["model_name"], temperature=ecfg["temperature"], top_p=ecfg["top_p"],
                        max_tokens=ecfg["max_tokens"], generation_seconds=round(gen_s, 1))
         (out_dir / f"{bench}_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
         k_max = summary["n_samples"]
+        ent = f"  entropy={summary['entropy']:.3f}" if summary.get("entropy") is not None else ""
         print(f"[eval] {name:>16s} {bench:>8s}  pass@1={summary['pass@1']:.3f}  "
               f"pass@{k_max}={summary['pass@' + str(k_max)]:.3f}  "
-              f"tokens={summary['mean_tokens']:.0f}  truncated={summary['truncated_rate']:.3f}  "
+              f"tokens={summary['mean_tokens']:.0f}  truncated={summary['truncated_rate']:.3f}{ent}  "
               f"({gen_s / 60:.1f} min)")
+
+
+def sample_nll(o) -> float | None:
+    """Mean -log p of the tokens this sample generated (None if log-probs weren't requested)."""
+    if not o.token_ids:
+        return None
+    total = None
+    if o.logprobs:
+        total = 0.0
+        for tok, lp in zip(o.token_ids, o.logprobs):
+            entry = lp.get(tok) if lp else None
+            if entry is None:
+                total = None
+                break
+            total += entry.logprob
+    if total is None and getattr(o, "cumulative_logprob", None) is not None:
+        total = o.cumulative_logprob
+    return None if total is None else -total / len(o.token_ids)
 
 
 def summarize(records: list[dict]) -> dict:
@@ -191,10 +232,19 @@ def summarize(records: list[dict]) -> dict:
         mean_tokens_correct=sum(correct_tokens) / len(correct_tokens) if correct_tokens else None,
         truncated_rate=sum(s["finish_reason"] == "length" for s in all_samples) / len(all_samples),
         boxed_rate=sum(s["boxed"] for s in all_samples) / len(all_samples),
+        entropy=token_entropy(all_samples),
     )
     for k in k_values(n):
         out[f"pass@{k}"] = sum(pass_at_k(r["n"], r["n_correct"], k) for r in records) / len(records)
     return out
+
+
+def token_entropy(samples: list[dict]) -> float | None:
+    """Token-weighted mean of per-sample nll: an estimate of per-token policy entropy."""
+    have = [s for s in samples if s.get("nll") is not None and s["n_tokens"] > 0]
+    if not have:
+        return None
+    return sum(s["nll"] * s["n_tokens"] for s in have) / sum(s["n_tokens"] for s in have)
 
 
 if __name__ == "__main__":
