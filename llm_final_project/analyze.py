@@ -30,6 +30,13 @@ import yaml
 from src.metrics import aes, k_values, pass_at_k
 
 
+def token_entropy(samples):
+    have = [s for s in samples if s.get("nll") is not None and s["n_tokens"] > 0]
+    if not have:
+        return None
+    return sum(s["nll"] * s["n_tokens"] for s in have) / sum(s["n_tokens"] for s in have)
+
+
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--root", default="outputs")
@@ -58,6 +65,7 @@ def metrics_for(records: list[dict]) -> dict:
         truncated_rate=sum(s["finish_reason"] == "length" for s in samples) / len(samples),
         boxed_rate=sum(s["boxed"] for s in samples) / len(samples),
         solved_by_any=sum(r["n_correct"] > 0 for r in records) / len(records),
+        entropy=token_entropy(samples),
     )
     for k in k_values(n):
         row[f"pass@{k}"] = sum(pass_at_k(r["n"], r["n_correct"], k) for r in records) / len(records)
@@ -134,7 +142,7 @@ def main():
         by_level.to_csv(out / "by_level.csv", index=False)
 
     value_cols = [c for c in df.columns if c.startswith("pass@") or c in
-                  ("mean_tokens", "mean_tokens_correct", "truncated_rate", "boxed_rate", "aes")]
+                  ("mean_tokens", "mean_tokens_correct", "truncated_rate", "boxed_rate", "aes", "entropy")]
     agg = df.groupby(["benchmark", "arm", "checkpoint", "step"])[value_cols].agg(["mean", "std"])
     agg.columns = [f"{a}_{b}" for a, b in agg.columns]
     agg = agg.reset_index().sort_values(["benchmark", "arm", "step"])
@@ -177,16 +185,18 @@ def make_plots(df: pd.DataFrame, root: Path, out: Path) -> None:
         fig.savefig(out / f"passk_{bench}.png", dpi=150)
         plt.close(fig)
 
-        # pass@1, pass@max and length over training
+        # pass@1, pass@max, length and eval entropy over training
         kmax = max(ks)
-        fig, axes = plt.subplots(1, 3, figsize=(13, 3.6))
+        cols = ["pass@1", f"pass@{kmax}", "mean_tokens", "entropy"]
+        fig, axes = plt.subplots(1, 4, figsize=(17, 3.6))
         for arm, a in d[d.arm != "base"].groupby("arm"):
-            g = a.groupby("step")[["pass@1", f"pass@{kmax}", "mean_tokens"]].mean()
-            for ax, col in zip(axes, g.columns):
-                ax.plot(g.index, g[col], marker="o", ms=3, label=arm)
+            g = a.groupby("step")[cols].mean()
+            for ax, col in zip(axes, cols):
+                s = g[col].dropna()
+                ax.plot(s.index, s, marker="o", ms=3, label=arm)
         base = d[d.arm == "base"]
-        for ax, col in zip(axes, ["pass@1", f"pass@{kmax}", "mean_tokens"]):
-            if not base.empty:
+        for ax, col in zip(axes, cols):
+            if not base.empty and base[col].notna().any():
                 ax.axhline(base[col].mean(), color="gray", linestyle="--", label="base")
             ax.set_xlabel("training step")
             ax.set_title(col)
