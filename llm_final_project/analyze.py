@@ -197,16 +197,29 @@ def make_plots(df: pd.DataFrame, root: Path, out: Path) -> None:
         plt.close(fig)
 
     # training curves from metrics.csv
-    cols = {"reward": "train reward", "completions/mean_length": "answer length (tokens)", "entropy": "entropy"}
+    # Column names differ a little between TRL/Unsloth versions, so match by name pattern.
+    panels = [("train reward", lambda c: c in ("reward", "train/reward")),
+              ("answer length (tokens)", lambda c: c.endswith("completions/mean_length")),
+              ("entropy", lambda c: "entropy" in c.lower())]
     fig, axes = plt.subplots(1, 3, figsize=(13, 3.6))
+    found = [False] * len(panels)
     for run_dir in sorted(p for p in root.iterdir() if (p / "metrics.csv").exists()):
         m = pd.read_csv(run_dir / "metrics.csv")
-        for ax, (col, title) in zip(axes, cols.items()):
-            if col in m.columns:
-                s = m[["step", col]].dropna()
-                ax.plot(s.step, s[col].rolling(10, min_periods=1).mean(), label=run_dir.name)
-                ax.set_title(title)
-                ax.set_xlabel("training step")
+        for i, (ax, (title, match)) in enumerate(zip(axes, panels)):
+            col = next((c for c in m.columns if match(c)), None)
+            if col is None:
+                continue
+            s = m[["step", col]].dropna()
+            if s.empty:
+                continue
+            found[i] = True
+            ax.plot(s.step, s[col].rolling(10, min_periods=1).mean(), label=run_dir.name)
+            ax.set_title(title)
+            ax.set_xlabel("training step")
+    for ax, (title, _), ok in zip(axes, panels, found):
+        if not ok:
+            ax.set_title(title)
+            ax.text(0.5, 0.5, "not logged", ha="center", va="center", transform=ax.transAxes)
     axes[0].legend(fontsize=7)
     fig.tight_layout()
     fig.savefig(out / "training_curves.png", dpi=150)
