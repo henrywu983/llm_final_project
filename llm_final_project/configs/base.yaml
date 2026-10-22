@@ -104,3 +104,6 @@ eval:
   boundary:                   # pass@k up to 256, a few checkpoints
     n_samples: 256
     max_problems: 200         # MATH500 subset is stratified by difficulty level
+  boundary_full:              # like boundary, but every test problem (about 3.5x the cost)
+    n_samples: 256
+    max_problems: null
