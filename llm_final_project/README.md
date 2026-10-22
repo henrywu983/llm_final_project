@@ -167,6 +167,43 @@ Any `--set` outside `machine.` or `logging.` changes the experiment. The script 
 | `checkpoints/checkpoint-N/` | LoRA adapter every 50 steps (all kept) |
 | `final_lora/`, `train.log` | Final adapter, full terminal output |
 
+### Moving a run to the evaluation server
+
+All evaluation runs on **one machine** so every arm is compared against the same base-model results (two servers gave different base numbers). Training can happen anywhere. After a run finishes, copy it to the evaluation server **through your own laptop**: lab servers usually can't log into each other, but your laptop can reach both.
+
+Run these in a terminal **on your laptop** (macOS/Linux terminal, or WSL on Windows), not on a server.
+
+- **`TRAIN_HOST` / `EVAL_HOST`:** what you type after `ssh` to log into that server, e.g. `henry@140.113.x.x`, or a short name from your `~/.ssh/config` (the names VS Code Remote-SSH shows).
+- **`<run>`:** the run folder name, e.g. `arm3_length_penalty_seed0`.
+
+**If you trained the run: download it from the training server to your laptop**
+
+```bash
+mkdir -p ~/llm_runs
+rsync -av --progress --exclude=eval/ --exclude=rollouts.jsonl.gz --exclude=optimizer.pt TRAIN_HOST:projects/llm_final_project/llm_final_project/outputs/<run>/ ~/llm_runs/<run>/
+```
+
+This skips old evaluation results, the large rollout log and optimizer states, which evaluation doesn't need. It's a few hundred MB.
+
+**If you evaluate: upload it from your laptop to the evaluation server**
+
+```bash
+rsync -av --progress ~/llm_runs/<run>/ EVAL_HOST:projects/llm_final_project/llm_final_project/outputs/<run>/
+```
+
+Then, on the evaluation server, check it arrived:
+
+```bash
+ls outputs/<run>/checkpoints     # checkpoint-50 ... checkpoint-500
+ls outputs/<run>/final_lora      # adapter_config.json, adapter_model.safetensors
+```
+
+Notes:
+- **Write each command on one line**, or end a line with `\` and nothing after it. A `\` in the middle of a line breaks the command (`rsync error: syntax or usage error`).
+- **The trailing `/` on both paths matters:** it copies the folder's contents into `<run>/` instead of nesting `<run>/<run>/`.
+- **`Permission denied`:** wrong username or password for that server, or the server only accepts SSH keys. Test with `ssh TRAIN_HOST` first.
+- **No rsync (Windows without WSL):** use `scp -r` with the same paths. It can't skip files, so it copies more.
+
 ### Step 4: evaluate
 
 ```bash
@@ -181,7 +218,7 @@ python evaluate.py --run outputs/arm1_grpo_seed0 --tag quick --checkpoints all
 python evaluate.py --run outputs/arm1_grpo_seed0 --tag boundary --checkpoints 100,300,final
 ```
 
-Every sampled answer is saved in `<run>/eval/<tag>/<checkpoint>/<benchmark>.jsonl.gz`, so any metric can be recomputed later without the GPU. `boundary` is expensive (about 50k answers per benchmark per checkpoint), so run it on the evaluation GPUs. To evaluate a run from another server, copy its `checkpoints/` and `config.yaml`.
+Every sampled answer is saved in `<run>/eval/<tag>/<checkpoint>/<benchmark>.jsonl.gz`, so any metric can be recomputed later without the GPU. `boundary` is expensive (about 50k answers per benchmark per checkpoint), so run it on the evaluation GPUs. To evaluate a run trained on another server, copy it over first (see *Moving a run to the evaluation server* above).
 
 ### Step 5: results
 
