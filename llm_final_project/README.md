@@ -201,9 +201,9 @@ Training needs the bigger GPUs; evaluation runs fine on smaller ones.
 
 | GPU | VRAM | Role |
 | --- | --- | --- |
-| RTX 5090 (葉又齊) | 32 GB | Training: arm 1, later arm 4 |
+| RTX 5090 (葉又齊) | 32 GB | Training: later arm 4 |
 | RTX 4090 (葉又齊) | 24 GB | Training: arm 3 |
-| RTX 4080 (吳俞亨) | 16 GB | Training: arm 2 |
+| RTX 4080 (吳俞亨) | 16 GB | Training: arm 1, and 2 |
 | RTX 5070 (吳俞亨) | 12 GB | Evaluation, test runs |
 | RTX 3060 () | 12 GB | Evaluation |
 | RTX 4060 (陳冠瑄) | 8 GB | Evaluation (lower `--gpu-memory-utilization` if needed) |
