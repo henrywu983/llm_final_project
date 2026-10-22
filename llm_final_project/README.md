@@ -168,7 +168,7 @@ Any `--set` outside `machine.` or `logging.` changes the experiment. The script 
 
 ### Moving a run to the evaluation server
 
-All evaluation runs on **one machine** so every arm is compared against the same base-model results (two servers gave different base numbers). Training can happen anywhere. After a run finishes, copy it to the evaluation server **through your own laptop**: lab servers usually can't log into each other, but your laptop can reach both.
+After a training run finishes, copy the file and send it to the teammate doing evaluation part **through your own laptop**.
 
 Run these in a terminal **on your laptop** (macOS/Linux terminal, or WSL on Windows), not on a server.
 
@@ -197,19 +197,9 @@ ls outputs/<run>/checkpoints     # checkpoint-50 ... checkpoint-500
 ls outputs/<run>/final_lora      # adapter_config.json, adapter_model.safetensors
 ```
 
-Notes:
-- **Write each command on one line**, or end a line with `\` and nothing after it. A `\` in the middle of a line breaks the command (`rsync error: syntax or usage error`).
-- **The trailing `/` on both paths matters:** it copies the folder's contents into `<run>/` instead of nesting `<run>/<run>/`.
-- **`Permission denied`:** wrong username or password for that server, or the server only accepts SSH keys. Test with `ssh TRAIN_HOST` first.
-- **No rsync (Windows without WSL):** use `scp -r` with the same paths. It can't skip files, so it copies more.
-
 ### Step 4: evaluate
 
 ```bash
-# Once, for the untrained base model (AES compares against it):
-python evaluate.py --base --tag quick
-python evaluate.py --base --tag boundary
-
 # Accuracy at every checkpoint (4 samples per problem, all problems):
 python evaluate.py --run outputs/arm1_grpo_seed0 --tag quick --checkpoints all
 
