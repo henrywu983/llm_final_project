@@ -92,7 +92,6 @@ First install the extra packages the experiment code needs (once):
 
 ```bash
 pip install math-verify pandas matplotlib pytest
-python -m pytest -q tests/        # 31 checks, CPU only, about 10 seconds
 ```
 
 ### The arms
