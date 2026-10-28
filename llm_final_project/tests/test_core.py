@@ -19,10 +19,10 @@ from src import data as data_mod  # noqa: E402
 from src.config import apply_overrides, load_config  # noqa: E402
 from src.grading import extract_answer, grade, has_boxed, last_boxed  # noqa: E402
 from src.length_penalty import (  # noqa: E402
-    LENGTH_PENALTIES, arora_zanette, extra_params, gated_arora_zanette, kimi, linear, scaled_arora_zanette)
+    LENGTH_PENALTIES, arora_zanette, ddca, extra_params, gated_arora_zanette, kimi, linear, scaled_arora_zanette)
 from src.metrics import aes, k_values, pass_at_k  # noqa: E402
 
-ARMS = ["arm1_grpo", "arm2_dr_grpo", "arm3_length_penalty", "arm4_da_gate", "arm5_ddca_scaled"]
+ARMS = ["arm1_grpo", "arm2_dr_grpo", "arm3_length_penalty", "arm4_da_gate", "arm5_ddca_scaled", "arm6_ddca"]
 
 
 # ---------------------------------------------------------------- grading
@@ -112,6 +112,39 @@ def test_gated_and_scaled():
     assert extra_params(LENGTH_PENALTIES["arora_zanette"], lp) == {}
 
 
+def test_ddca_matches_paper_advantage():
+    """GRPO advantage (reward - group mean) on our arm 6 reward == DDCA's A_acc(RLOO) - beta*A_len."""
+    import random as _r
+
+    rng = _r.Random(0)
+    G, beta = 8, 0.2
+    q = [f"q{k}" for k in range(6) for _ in range(G)]
+    lengths = [rng.randint(50, 900) for _ in q]
+    correct = [rng.random() < [0.9, 0.6, 0.3, 0.13, 0.0, 1.0][int(qq[1:])] for qq in q]
+    term = ddca(q, lengths, correct, 1024, beta)
+    w = G / (G - 1)
+    for k in range(6):
+        idx = [i for i, qq in enumerate(q) if qq == f"q{k}"]
+        assert math.isclose(sum(term[i] for i in idx), 0.0, abs_tol=1e-12)     # sums to zero
+        reward = [w * correct[i] + term[i] for i in idx]
+        mean = sum(reward) / G
+        good = [i for i in idx if correct[i]]
+        n = len(good)
+        if n >= 2:
+            ls = [lengths[i] for i in good]
+            mu = sum(ls) / n
+            sd = (sum((x - mu) ** 2 for x in ls) / n) ** 0.5
+            rl = {i: 1 / (1 + math.exp(-((lengths[i] - mu) / sd if sd else 0.0))) for i in good}
+        for j, i in enumerate(idx):
+            a_acc = correct[i] - sum(correct[t] for t in idx if t != i) / (G - 1)     # RLOO
+            a_len = 0.0
+            if correct[i] and n >= 2:
+                a_len = (n / G) * (rl[i] - (sum(rl.values()) - rl[i]) / (n - 1))
+            assert math.isclose(reward[j] - mean, a_acc - beta * a_len, abs_tol=1e-12)
+    # single correct answer: nothing to compare with
+    assert ddca(["a"] * 4, [10, 20, 30, 40], [True, False, False, False], 1024, 0.2) == [0.0] * 4
+
+
 def test_linear_and_kimi():
     assert linear(["a", "a"], [512, 512], [True, False], 1024, 0.2) == [-0.1, 0.0]
     out = kimi(["a"] * 3, [100, 200, 300], [True, True, False], 1024, 1.0)
@@ -129,6 +162,9 @@ def test_arm_configs_differ_only_in_method():
     assert cfgs["arm1_grpo"]["reward"]["length_penalty"]["enabled"] is False
     assert cfgs["arm4_da_gate"]["reward"]["length_penalty"]["type"] == "gated_arora_zanette"
     assert cfgs["arm5_ddca_scaled"]["reward"]["length_penalty"]["type"] == "scaled_arora_zanette"
+    assert cfgs["arm6_ddca"]["grpo"]["scale_rewards"] == "none"
+    assert cfgs["arm6_ddca"]["reward"]["rloo_correctness"] is True
+    assert all(cfgs[a]["reward"]["rloo_correctness"] is False for a in ARMS if a != "arm6_ddca")
     for arm in ("arm4_da_gate", "arm5_ddca_scaled"):     # same as arm 3 except the penalty type
         assert cfgs[arm]["grpo"] == cfgs["arm3_length_penalty"]["grpo"]
         assert cfgs[arm]["reward"]["length_penalty"]["coef"] == cfgs["arm3_length_penalty"]["reward"]["length_penalty"]["coef"]
