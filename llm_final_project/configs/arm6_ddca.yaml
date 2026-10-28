@@ -1,0 +1,32 @@
+# Arm 6: DDCA (Peng et al., 2026), "Dynamic Decoupled Conditional Advantage",
+# reproduced through the reward so TRL's trainer needs no changes.
+#
+# DDCA's advantage for answer i:  A_i = A_acc_i - beta * A_len_i
+#   A_acc_i = correct_i - mean(correct of the OTHER answers)          (RLOO)
+#   A_len_i = (n/N) * (r_len_i - mean r_len of the OTHER correct answers),
+#             r_len = sigmoid(length z-score among correct answers); 0 if wrong
+#
+# How we get it from GRPO (advantage = reward - group mean):
+#   * scale_rewards: none        -> no division by the group std
+#   * rloo_correctness: true     -> correctness x 8/7 = N/(N-1), so
+#                                   "minus mean of all 8" equals "minus mean of the other 7"
+#   * length term type: ddca     -> -beta * A_len, which sums to 0 per question,
+#                                   so subtracting the group mean leaves it unchanged
+#
+# Remaining differences from the paper: we keep the 0.1 format bonus and KL = 0
+# (paper: 1e-3), and use TRL's "grpo" loss averaging.
+inherit: base.yaml
+
+experiment:
+  name: arm6_ddca
+
+grpo:
+  loss_type: grpo
+  scale_rewards: none
+
+reward:
+  rloo_correctness: true
+  length_penalty:
+    enabled: true
+    type: ddca
+    coef: 0.2     # beta; the paper tried 0.2, 0.3 and 0.5
