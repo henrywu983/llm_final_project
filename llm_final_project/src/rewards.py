@@ -35,6 +35,12 @@ class RewardEngine:
     def __init__(self, cfg: dict, tokenizer, run_dir: Path):
         rcfg = cfg["reward"]
         self.correct_w = float(rcfg["correctness"])
+        if rcfg.get("rloo_correctness", False):
+            # GRPO's advantage is r - mean(all G answers); RLOO's is r - mean(the other G-1).
+            # The two differ by exactly G/(G-1), so scaling the correctness reward by it
+            # makes GRPO's accuracy advantage equal RLOO's (used by DDCA, arm 6).
+            g = int(cfg["grpo"]["num_generations"])
+            self.correct_w *= g / (g - 1)
         self.format_bonus = float(rcfg["format_bonus"])
         lp = rcfg["length_penalty"]
         self.length_enabled = bool(lp["enabled"])

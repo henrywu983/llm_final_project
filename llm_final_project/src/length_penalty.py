@@ -103,12 +103,43 @@ def scaled_arora_zanette(question_ids, lengths, correct, max_len, coef):
     return [b * rate[q] for b, q in zip(base, question_ids)]
 
 
+def ddca(question_ids, lengths, correct, max_len, coef):
+    """Arm 6, DDCA's decoupled length advantage (Peng et al., 2026), written as a reward.
+
+    For each question with N answers, n of them correct:
+        r_len_i = sigmoid(z_i), z_i = length z-score among the CORRECT answers
+        A_len_i = (n / N) * (r_len_i - mean of r_len over the OTHER correct answers)
+    Correct answers get -coef * A_len_i; incorrect answers get 0. With n < 2
+    there is nothing to compare, so the term is 0.
+
+    These terms sum to zero within every question, so when GRPO subtracts the
+    group mean (with scale_rewards: none) they pass through unchanged and the
+    advantage equals DDCA's -beta * A_len. See configs/arm6_ddca.yaml.
+    """
+    out = [0.0] * len(lengths)
+    for idx in _groups(question_ids):
+        good = [i for i in idx if correct[i]]
+        n, N = len(good), len(idx)
+        if n < 2:
+            continue
+        ls = [lengths[i] for i in good]
+        mean = sum(ls) / n
+        std = (sum((x - mean) ** 2 for x in ls) / n) ** 0.5
+        r = {i: _sigmoid((lengths[i] - mean) / std if std > 0 else 0.0) for i in good}
+        total = sum(r.values())
+        for i in good:
+            a_len = (n / N) * (r[i] - (total - r[i]) / (n - 1))
+            out[i] = -coef * a_len
+    return out
+
+
 LENGTH_PENALTIES = {
     "arora_zanette": arora_zanette,
     "linear": linear,
     "kimi": kimi,
     "gated_arora_zanette": gated_arora_zanette,
     "scaled_arora_zanette": scaled_arora_zanette,
+    "ddca": ddca,
 }
 
 
