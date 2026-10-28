@@ -63,9 +63,10 @@ train:
 reward:
   correctness: 1.0            # reward for a correct final answer
   format_bonus: 0.1           # small bonus for using \boxed{}
+  rloo_correctness: false     # true: correctness x G/(G-1), so the advantage matches RLOO (arm 6)
   length_penalty:
     enabled: false
-    type: arora_zanette       # arora_zanette | linear | kimi | gated_arora_zanette | scaled_arora_zanette
+    type: arora_zanette       # arora_zanette | linear | kimi | gated_arora_zanette | scaled_arora_zanette | ddca
     coef: 0.2
     tau: 0.5                  # gate threshold, only used by gated_arora_zanette (arm 4)
 
