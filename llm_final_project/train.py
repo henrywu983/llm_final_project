@@ -153,12 +153,19 @@ def main():
         log_file.close()
 
 
+def _penalty_desc(lp):
+    from src.length_penalty import LENGTH_PENALTIES, extra_params
+
+    params = dict(coef=lp["coef"], **extra_params(LENGTH_PENALTIES[lp["type"]], lp))
+    return f"{lp['type']}(" + ", ".join(f"{k}={v}" for k, v in params.items()) + ")"
+
+
 def _print_method(grpo_args, cfg):
     lp = cfg["reward"]["length_penalty"]
     print("[method] loss_type=%s scale_rewards=%s beta=%s epsilon=%s G=%s max_len=%s | length_penalty=%s"
           % (grpo_args.loss_type, grpo_args.scale_rewards, grpo_args.beta, grpo_args.epsilon,
              grpo_args.num_generations, grpo_args.max_completion_length,
-             f"{lp['type']}(coef={lp['coef']})" if lp["enabled"] else "off"))
+             _penalty_desc(lp) if lp["enabled"] else "off"))
     print("[batch] %d questions x %d answers per step = %d answers; batch %d x grad_accum %d; %d steps"
           % (cfg["grpo"]["prompts_per_step"], grpo_args.num_generations,
              cfg["grpo"]["prompts_per_step"] * grpo_args.num_generations,
