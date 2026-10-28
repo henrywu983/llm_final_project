@@ -104,6 +104,7 @@ python -m pytest -q tests/        # 31 checks, CPU only, about 10 seconds
 | 3 | `configs/arm3_length_penalty.yaml` | Standard GRPO + length penalty (Arora & Zanette) |
 | 4 | `configs/arm4_da_gate.yaml` | Our difficulty-aware (DA) penalty: arm 3's penalty, switched off on hard questions (fewer than `tau` = 50% of the 8 answers correct) |
 | 5 | `configs/arm5_ddca_scaled.yaml` | DDCA-inspired: arm 3's penalty multiplied by the share of correct answers (fades smoothly on hard questions) |
+| 6 | `configs/arm6_ddca.yaml` | DDCA (Peng et al., 2026): difficulty-scaled length advantage among correct answers + RLOO accuracy advantage, built into the reward (`scale_rewards: none`, correctness × 8/7) |
 
 All shared settings (model, data, steps, batch, lengths, LoRA, evaluation) live in `configs/base.yaml`. **Don't edit it for your own run**, since every arm must use the same values.
 
