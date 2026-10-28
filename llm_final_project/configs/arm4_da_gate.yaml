@@ -1,0 +1,20 @@
+# Arm 4: our difficulty-aware (DA) length penalty = arm 3 + an on/off gate.
+# For each question, p_hat = share of its 8 answers that are correct.
+#   p_hat >= tau (easy): same length term as arm 3 (Arora & Zanette)
+#   p_hat <  tau (hard): no length term, trained like standard GRPO (arm 1)
+# Everything else matches arm 3, so arm 3 vs arm 4 isolates the gate.
+inherit: base.yaml
+
+experiment:
+  name: arm4_da_gate
+
+grpo:
+  loss_type: grpo
+  scale_rewards: group
+
+reward:
+  length_penalty:
+    enabled: true
+    type: gated_arora_zanette
+    coef: 0.2
+    tau: 0.5      # 4 or more of 8 correct counts as easy

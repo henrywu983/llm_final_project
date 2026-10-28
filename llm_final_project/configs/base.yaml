@@ -65,8 +65,9 @@ reward:
   format_bonus: 0.1           # small bonus for using \boxed{}
   length_penalty:
     enabled: false
-    type: arora_zanette       # arora_zanette | linear | kimi (see src/length_penalty.py)
+    type: arora_zanette       # arora_zanette | linear | kimi | gated_arora_zanette | scaled_arora_zanette
     coef: 0.2
+    tau: 0.5                  # gate threshold, only used by gated_arora_zanette (arm 4)
 
 logging:
   report_to: none             # set to "wandb" to also log to Weights & Biases

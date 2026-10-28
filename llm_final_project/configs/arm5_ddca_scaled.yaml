@@ -1,0 +1,20 @@
+# Arm 5: DDCA-inspired difficulty scaling (simple, reward-level version).
+# Same length term as arm 3, multiplied by p_hat = share of the question's
+# 8 answers that are correct (DDCA's n/N factor): full pressure on easy
+# questions, fading smoothly to none on hard ones.
+# Unlike DDCA itself, the term is added to the reward, not to a separate
+# correct-only length advantage. Everything else matches arm 3.
+inherit: base.yaml
+
+experiment:
+  name: arm5_ddca_scaled
+
+grpo:
+  loss_type: grpo
+  scale_rewards: group
+
+reward:
+  length_penalty:
+    enabled: true
+    type: scaled_arora_zanette
+    coef: 0.2
