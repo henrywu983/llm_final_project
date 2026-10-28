@@ -18,10 +18,11 @@ sys.path.insert(0, str(ROOT))
 from src import data as data_mod  # noqa: E402
 from src.config import apply_overrides, load_config  # noqa: E402
 from src.grading import extract_answer, grade, has_boxed, last_boxed  # noqa: E402
-from src.length_penalty import arora_zanette, kimi, linear  # noqa: E402
+from src.length_penalty import (  # noqa: E402
+    LENGTH_PENALTIES, arora_zanette, extra_params, gated_arora_zanette, kimi, linear, scaled_arora_zanette)
 from src.metrics import aes, k_values, pass_at_k  # noqa: E402
 
-ARMS = ["arm1_grpo", "arm2_dr_grpo", "arm3_length_penalty"]
+ARMS = ["arm1_grpo", "arm2_dr_grpo", "arm3_length_penalty", "arm4_da_gate", "arm5_ddca_scaled"]
 
 
 # ---------------------------------------------------------------- grading
@@ -92,6 +93,25 @@ def test_arora_zanette():
     assert all(-0.2 <= x <= 0 for x in out)
 
 
+def test_gated_and_scaled():
+    # question a: 3/4 correct (easy at tau=0.5); question b: 1/4 correct (hard)
+    q = ["a"] * 4 + ["b"] * 4
+    lengths = [100, 200, 300, 50, 80, 90, 70, 60]
+    correct = [True, True, True, False, False, True, False, False]
+    base = arora_zanette(q, lengths, correct, 1024, 0.2)
+    gated = gated_arora_zanette(q, lengths, correct, 1024, 0.2, tau=0.5)
+    assert gated[:4] == base[:4]                                 # easy: same as arm 3
+    assert gated[4:] == [0.0] * 4                                # hard: no length term
+    assert gated_arora_zanette(q, lengths, correct, 1024, 0.2, tau=0.25) == base  # 1/4 >= 0.25
+    scaled = scaled_arora_zanette(q, lengths, correct, 1024, 0.2)
+    assert all(math.isclose(s, b * 0.75) for s, b in zip(scaled[:4], base[:4]))
+    assert all(math.isclose(s, b * 0.25) for s, b in zip(scaled[4:], base[4:]))
+    # config plumbing: tau only goes to the function that takes it
+    lp = dict(enabled=True, type="gated_arora_zanette", coef=0.2, tau=0.75)
+    assert extra_params(LENGTH_PENALTIES["gated_arora_zanette"], lp) == {"tau": 0.75}
+    assert extra_params(LENGTH_PENALTIES["arora_zanette"], lp) == {}
+
+
 def test_linear_and_kimi():
     assert linear(["a", "a"], [512, 512], [True, False], 1024, 0.2) == [-0.1, 0.0]
     out = kimi(["a"] * 3, [100, 200, 300], [True, True, False], 1024, 1.0)
@@ -107,8 +127,13 @@ def test_arm_configs_differ_only_in_method():
     assert cfgs["arm2_dr_grpo"]["grpo"]["scale_rewards"] == "none"
     assert cfgs["arm3_length_penalty"]["reward"]["length_penalty"]["enabled"] is True
     assert cfgs["arm1_grpo"]["reward"]["length_penalty"]["enabled"] is False
+    assert cfgs["arm4_da_gate"]["reward"]["length_penalty"]["type"] == "gated_arora_zanette"
+    assert cfgs["arm5_ddca_scaled"]["reward"]["length_penalty"]["type"] == "scaled_arora_zanette"
+    for arm in ("arm4_da_gate", "arm5_ddca_scaled"):     # same as arm 3 except the penalty type
+        assert cfgs[arm]["grpo"] == cfgs["arm3_length_penalty"]["grpo"]
+        assert cfgs[arm]["reward"]["length_penalty"]["coef"] == cfgs["arm3_length_penalty"]["reward"]["length_penalty"]["coef"]
     for section in ["model", "data", "prompt", "train", "eval"]:
-        assert cfgs["arm1_grpo"][section] == cfgs["arm2_dr_grpo"][section] == cfgs["arm3_length_penalty"][section]
+        assert all(cfgs[a][section] == cfgs["arm1_grpo"][section] for a in ARMS)
 
 
 def test_overrides():
