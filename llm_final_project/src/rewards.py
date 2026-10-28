@@ -22,7 +22,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from .grading import grade, has_boxed
-from .length_penalty import LENGTH_PENALTIES
+from .length_penalty import LENGTH_PENALTIES, extra_params
 
 
 def _text(completion) -> str:
@@ -40,6 +40,7 @@ class RewardEngine:
         self.length_enabled = bool(lp["enabled"])
         self.length_fn = LENGTH_PENALTIES[lp["type"]] if self.length_enabled else None
         self.length_coef = float(lp["coef"])
+        self.length_params = extra_params(self.length_fn, lp) if self.length_enabled else {}
         self.max_len = int(cfg["grpo"]["max_completion_length"])
         self.tokenizer = tokenizer
         self.log_rollouts = bool(cfg["logging"].get("log_rollouts", True))
@@ -88,7 +89,8 @@ class RewardEngine:
         r_correct = [self.correct_w * float(c) for c in correct]
         r_format = [self.format_bonus if b else 0.0 for b in boxed]
         if self.length_enabled:
-            r_length = self.length_fn(qids, lengths, correct, self.max_len, self.length_coef)
+            r_length = self.length_fn(qids, lengths, correct, self.max_len, self.length_coef,
+                                      **self.length_params)
         else:
             r_length = [0.0] * len(texts)
 

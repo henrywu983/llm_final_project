@@ -4,9 +4,9 @@ Total reward for one answer = correctness + format bonus + length term.
 Each function returns one length term per answer. Answers to the same
 question are compared with each other (grouped by `question_ids`).
 
-To add a new variant (e.g. our own method), write a function with the same
-signature and add it to LENGTH_PENALTIES; then set
-`reward.length_penalty.type` to its name in a config file.
+To add a new variant, write a function with the same signature and add it to
+LENGTH_PENALTIES; then set `reward.length_penalty.type` to its name in a config
+file. Extra keyword arguments (like `tau`) are filled from the same config block.
 """
 
 from __future__ import annotations
@@ -70,8 +70,51 @@ def kimi(question_ids, lengths, correct, max_len, coef):
     return out
 
 
+def _success_rates(question_ids, correct):
+    """Share of correct answers in each question's group: p_hat = (#correct) / (group size)."""
+    rate = {}
+    for idx in _groups(question_ids):
+        rate[question_ids[idx[0]]] = sum(bool(correct[i]) for i in idx) / len(idx)
+    return rate
+
+
+def gated_arora_zanette(question_ids, lengths, correct, max_len, coef, tau=0.5):
+    """Arm 4, our difficulty-aware (DA) penalty: an on/off gate on the arm 3 penalty.
+
+    p_hat = share of the group's answers that are correct. If p_hat >= tau the
+    question counts as easy and gets exactly the arm 3 (Arora & Zanette) length
+    term; otherwise (hard) it gets no length term at all.
+    """
+    base = arora_zanette(question_ids, lengths, correct, max_len, coef)
+    rate = _success_rates(question_ids, correct)
+    return [b if rate[q] >= tau else 0.0 for b, q in zip(base, question_ids)]
+
+
+def scaled_arora_zanette(question_ids, lengths, correct, max_len, coef):
+    """Arm 5, DDCA-inspired (reward-level only): the arm 3 penalty times p_hat.
+
+    Like DDCA's n/N factor, the length pressure fades smoothly on hard questions
+    and is full on easy ones. Unlike DDCA, it is added to the reward (so GRPO
+    normalizes it together with correctness) rather than to a separate,
+    correct-only length advantage.
+    """
+    base = arora_zanette(question_ids, lengths, correct, max_len, coef)
+    rate = _success_rates(question_ids, correct)
+    return [b * rate[q] for b, q in zip(base, question_ids)]
+
+
 LENGTH_PENALTIES = {
     "arora_zanette": arora_zanette,
     "linear": linear,
     "kimi": kimi,
+    "gated_arora_zanette": gated_arora_zanette,
+    "scaled_arora_zanette": scaled_arora_zanette,
 }
+
+
+def extra_params(fn, lp_cfg: dict) -> dict:
+    """Config values (e.g. tau) that this penalty function accepts as keyword arguments."""
+    import inspect
+
+    accepted = set(inspect.signature(fn).parameters) - {"question_ids", "lengths", "correct", "max_len", "coef"}
+    return {k: lp_cfg[k] for k in accepted if k in lp_cfg}
