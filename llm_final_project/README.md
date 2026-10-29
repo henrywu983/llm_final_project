@@ -225,7 +225,8 @@ Every sampled answer is saved in `<run>/eval/<tag>/<checkpoint>/<benchmark>.json
 ### Step 5: results
 
 ```bash
-python analyze.py --tag boundary --plots
+python analyze.py --tag quick --plots      # Full protocol: accuracy, length, entropy, AES at every checkpoint
+python analyze.py --tag boundary --plots.  # Boundary protocol: pass@k up to 256
 ```
 
 This writes `results/boundary/`:
