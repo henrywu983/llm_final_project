@@ -93,6 +93,15 @@ eval:
     amc23:
       id: math-ai/amc23
       split: test
+  # Extra benchmarks: never run by default, only with --benchmarks <name>,
+  # so the default results stay comparable across all arms.
+  extra_benchmarks:
+    aime22_24:                # AIME 2022-2024, 90 problems (integer answers)
+      id: AI-MO/aimo-validation-aime
+      split: train
+      loader: aime
+      years: [2022, 2023, 2024]
+      max_tokens: 2048        # per-benchmark limit; raise (e.g. 4096) if many answers are truncated
   temperature: 0.6
   top_p: 0.95
   max_tokens: 2048
