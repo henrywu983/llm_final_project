@@ -257,6 +257,32 @@ def test_benchmark_subset_is_stratified_and_fixed(monkeypatch):
         assert sum(r["level"] == level for r in a) == 40
 
 
+def test_aime_loader(monkeypatch):
+    url = "https://artofproblemsolving.com/wiki/index.php/{}_AIME_{}_Problems/Problem_{}"
+    fake = [dict(id=0, problem="p1", answer="116", url=url.format(2022, "I", 1)),
+            dict(id=1, problem="p2", answer="033", url=url.format(2023, "II", 7)),
+            dict(id=2, problem="p3", answer="5", url=url.format(2024, "I", 15)),
+            dict(id=3, problem="p4", answer="9", url=url.format(2021, "I", 2))]
+    monkeypatch.setattr(data_mod, "_load", lambda spec: (fake, "train"))
+    spec = load_config(ROOT / "configs/base.yaml")["eval"]["extra_benchmarks"]["aime22_24"]
+    rows = data_mod.load_benchmark("aime22_24", spec, 200, seed=0)
+    assert [r["question_id"] for r in rows] == ["aime22_24-2022-I-1", "aime22_24-2023-II-7", "aime22_24-2024-I-15"]
+    assert [r["answer"] for r in rows] == ["116", "33", "5"]          # 2021 dropped, leading zero removed
+    assert grade(r"so the answer is \boxed{33}", rows[1]["answer"])
+
+
+def test_extra_benchmarks_are_opt_in():
+    import evaluate
+
+    base_eval = load_config(ROOT / "configs/base.yaml")["eval"]
+    assert "aime22_24" not in base_eval["benchmarks"]                 # not in the default list
+    old_run_eval = {k: v for k, v in base_eval.items() if k != "extra_benchmarks"}  # finished runs' config
+    specs = evaluate.benchmark_specs(old_run_eval, ["math500", "aime22_24"])
+    assert specs["aime22_24"]["loader"] == "aime" and specs["math500"]["id"] == "HuggingFaceH4/MATH-500"
+    with pytest.raises(SystemExit):
+        evaluate.benchmark_specs(old_run_eval, ["nope"])
+
+
 # ---------------------------------------------------------------- evaluation + analysis
 def _write_eval(path: Path, n_correct: list[int], n: int, tokens: int):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -280,7 +306,7 @@ def test_analysis_pipeline(tmp_path):
     cfg["experiment"]["seed"] = 0
     yaml.safe_dump(cfg, open(run / "config.yaml", "w"))
     _write_eval(run / "eval/boundary/checkpoint-50/math500.jsonl.gz", [4, 0, 4, 0], 4, 500)
-    df, by_level = analyze.collect(root, "boundary")
+    df, by_level, problems = analyze.collect(root, "boundary")
     df = analyze.add_aes(df)
     base = df[df.run == "base"].iloc[0]
     trained = df[df.run == "arm1_grpo_seed0"].iloc[0]
@@ -289,6 +315,14 @@ def test_analysis_pipeline(tmp_path):
     assert math.isclose(trained["pass@4"], 0.5) and math.isclose(base["pass@4"], 0.75)  # boundary narrowed
     assert math.isclose(trained.aes, 0.5 + 3 * (0.5 - 7 / 16) / (7 / 16))
     assert set(by_level.level) == {1, 2}
+    # base solved q0, q2, q3; run solved q0, q2 -> q3 lost (base 1/4: could be chance)
+    lg = analyze.lost_gained(df, problems)
+    row = lg[lg.level == "all"].iloc[0]
+    assert (row.base_solved, row.run_solved, row.lost, row.gained) == (3, 2, 1, 0)
+    assert row.lost_ids == "q3" and row.lost_beyond_chance == 0     # (3/4)^4 = 0.32 > 0.05
+    analyze.make_plots(df, root, tmp_path, by_level)
+    for name in ("tradeoff_math500.png", "passk_math500.png", "by_level_math500.png"):
+        assert (tmp_path / name).exists(), name
 
 
 def test_find_targets(tmp_path):
