@@ -113,6 +113,7 @@ def main():
     n = args.n_samples or mode["n_samples"]
     max_problems = args.max_problems if args.max_problems is not None else mode["max_problems"]
     bench_names = args.benchmarks.split(",") if args.benchmarks else list(ecfg["benchmarks"])
+    specs = benchmark_specs(ecfg, bench_names)
     instruction = cfg["prompt"]["instruction"]
 
     # Skip work that is already done.
@@ -122,8 +123,9 @@ def main():
         print("Everything already evaluated. Use --overwrite to redo.")
         return
 
-    problems = {b: load_benchmark(b, ecfg["benchmarks"][b], max_problems, ecfg["subset_seed"])
+    problems = {b: load_benchmark(b, specs[b], max_problems, ecfg["subset_seed"])
                 for b in bench_names}
+    max_tokens = {b: int(specs[b].get("max_tokens", ecfg["max_tokens"])) for b in bench_names}
     for b, rows in problems.items():
         print(f"[eval] {b}: {len(rows)} problems x {n} samples")
 
@@ -137,7 +139,7 @@ def main():
     llm_kwargs = dict(
         model=ecfg["model_name"], enable_lora=use_lora,
         max_lora_rank=cfg["model"]["lora_rank"] if use_lora else 16,
-        max_model_len=1024 + ecfg["max_tokens"], seed=ecfg["seed"],
+        max_model_len=1024 + max(max_tokens[b] for _, _, b in todo), seed=ecfg["seed"],
         gpu_memory_utilization=args.gpu_memory_utilization or ecfg["gpu_memory_utilization"],
     )
     want_lp = not args.no_entropy
@@ -159,9 +161,10 @@ def main():
     prompts = {b: [tokenizer.apply_chat_template(build_messages(r["question"], instruction),
                                                  tokenize=False, add_generation_prompt=True)
                    for r in rows] for b, rows in problems.items()}
-    sampling = SamplingParams(n=n, temperature=ecfg["temperature"], top_p=ecfg["top_p"],
-                              max_tokens=ecfg["max_tokens"], seed=ecfg["seed"],
-                              logprobs=0 if want_lp else None)
+    sampling = {b: SamplingParams(n=n, temperature=ecfg["temperature"], top_p=ecfg["top_p"],
+                                  max_tokens=max_tokens[b], seed=ecfg["seed"],
+                                  logprobs=0 if want_lp else None)
+                for b in bench_names}
 
     lora_ids = {}
     for name, path, bench in todo:
@@ -170,7 +173,7 @@ def main():
             lora_ids.setdefault(name, len(lora_ids) + 1)
             lora = LoRARequest(name, lora_ids[name], path)
         t0 = time.time()
-        outputs = llm.generate(prompts[bench], sampling, lora_request=lora)
+        outputs = llm.generate(prompts[bench], sampling[bench], lora_request=lora)
         gen_s = time.time() - t0
 
         rows = problems[bench]
@@ -200,7 +203,7 @@ def main():
         summary = summarize(records)
         summary.update(logprobs_mode=logprobs_mode, checkpoint=name, benchmark=bench, tag=args.tag, adapter=path,
                        model=ecfg["model_name"], temperature=ecfg["temperature"], top_p=ecfg["top_p"],
-                       max_tokens=ecfg["max_tokens"], generation_seconds=round(gen_s, 1))
+                       max_tokens=max_tokens[bench], generation_seconds=round(gen_s, 1))
         (out_dir / f"{bench}_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
         k_max = summary["n_samples"]
         ent = f"  entropy={summary['entropy']:.3f}" if summary.get("entropy") is not None else ""
@@ -208,6 +211,28 @@ def main():
               f"pass@{k_max}={summary['pass@' + str(k_max)]:.3f}  "
               f"tokens={summary['mean_tokens']:.0f}  truncated={summary['truncated_rate']:.3f}{ent}  "
               f"({gen_s / 60:.1f} min)")
+
+
+def benchmark_specs(ecfg: dict, names: list[str]) -> dict:
+    """Find each benchmark's settings: the run's own config first, then configs/base.yaml.
+
+    Finished runs keep the config they were trained with, so benchmarks added
+    later (e.g. extra_benchmarks: aime22_24) are taken from base.yaml.
+    """
+    own = {**ecfg.get("benchmarks", {}), **ecfg.get("extra_benchmarks", {})}
+    shared = None
+    specs = {}
+    for b in names:
+        if b in own:
+            specs[b] = own[b]
+            continue
+        if shared is None:
+            se = load_config("configs/base.yaml")["eval"]
+            shared = {**se.get("benchmarks", {}), **se.get("extra_benchmarks", {})}
+        if b not in shared:
+            raise SystemExit(f"Unknown benchmark {b!r}; known: {sorted({**own, **shared})}")
+        specs[b] = shared[b]
+    return specs
 
 
 def sample_nll(o) -> float | None:
