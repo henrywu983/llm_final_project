@@ -2,7 +2,7 @@
 
 Every problem becomes a dict with:
     question_id  unique, stable id (used to group answers and to join results)
-    source       gsm8k | math | math500 | amc23 | ...
+    source       gsm8k | math | math500 | amc23 | aime22_24 | ...
     level        difficulty level 1-5 for MATH problems, 0 if unknown
     question     problem text
     answer       gold answer as a string
@@ -96,6 +96,35 @@ def load_generic(spec: dict, tag: str) -> list[dict]:
     return rows
 
 
+_AIME_URL = re.compile(r"(\d{4})_AIME_(I{1,2})_Problems/Problem_(\d+)")
+
+
+def load_aime(spec: dict, tag: str) -> list[dict]:
+    """AIME problems (e.g. AI-MO/aimo-validation-aime: AIME 2022-2024, 90 problems).
+
+    Year, exam (I/II) and problem number come from the AoPS `url` field, which
+    gives a readable, stable id like `aime22_24-2023-II-7`. `years` in the spec
+    keeps only those years. AIME answers are integers 0-999.
+    """
+    ds, _ = _load(spec)
+    years = {int(y) for y in spec.get("years") or []}
+    rows = []
+    for i, r in enumerate(ds):
+        m = _AIME_URL.search(str(r.get("url", "")))
+        year, exam, num = (int(m.group(1)), m.group(2), int(m.group(3))) if m else (None, "", i)
+        if years and year not in years:
+            continue
+        ans = _answer_str(_pick(r, ["answer"]))
+        if re.fullmatch(r"\d+", ans):
+            ans = str(int(ans))  # "033" -> "33"
+        pid = f"{year}-{exam}-{num}" if m else str(r.get("id", i))
+        rows.append(dict(question_id=f"{tag}-{pid}", source=tag, level=0,
+                         question=_pick(r, ["problem", "question"]), answer=ans))
+    if years and not rows:
+        raise ValueError(f"No AIME problems from years {sorted(years)} in {spec['id']}")
+    return rows
+
+
 def build_train_rows(cfg: dict) -> list[dict]:
     dcfg = cfg["data"]
     rows = []
@@ -132,7 +161,13 @@ def load_benchmark(name: str, spec: dict, max_problems: int | None, seed: int) -
 
     MATH-500 subsets are stratified by level so every difficulty stays represented.
     """
-    rows = load_gsm8k(spec, tag=name) if "gsm8k" in spec["id"] else load_generic(spec, tag=name)
+    loader = spec.get("loader") or ("gsm8k" if "gsm8k" in spec["id"] else "generic")
+    if loader == "gsm8k":
+        rows = load_gsm8k(spec, tag=name)
+    elif loader == "aime":
+        rows = load_aime(spec, tag=name)
+    else:
+        rows = load_generic(spec, tag=name)
     if not max_problems or len(rows) <= max_problems:
         return rows
     rng = random.Random(seed)
