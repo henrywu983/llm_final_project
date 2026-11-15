@@ -222,18 +222,37 @@ python evaluate.py --run outputs/arm1_grpo_seed0 --tag boundary --checkpoints 10
 
 Every sampled answer is saved in `<run>/eval/<tag>/<checkpoint>/<benchmark>.jsonl.gz`, so any metric can be recomputed later without the GPU. `boundary` is expensive (about 50k answers per benchmark per checkpoint), so run it on the evaluation GPUs. To evaluate a run trained on another server, copy it over first (see *Moving a run to the evaluation server* above).
 
+### Extra benchmark: AIME 2022-2024 (optional)
+
+AIME (90 problems, `aime22_24`) is defined under `extra_benchmarks` in `configs/base.yaml`, so it never runs unless you ask for it. Use the Boundary protocol only (pass@1 is very low for small models), on the evaluation server, for the base model and each arm's final checkpoint:
+
+```bash
+python evaluate.py --base --tag boundary --benchmarks aime22_24
+python evaluate.py --run outputs/<run> --tag boundary --checkpoints final --benchmarks aime22_24
+```
+
+Check the `truncated=` value it prints. If many answers hit the length limit, raise `max_tokens` under `aime22_24` in `configs/base.yaml` (e.g. 4096), delete the AIME results, and rerun everything on AIME with the same setting.
+
 ### Step 5: results
+
+Run it once per evaluation tag (each reads only that tag's results):
 
 ```bash
 python analyze.py --tag quick --plots      # Full protocol: accuracy, length, entropy, AES at every checkpoint
-python analyze.py --tag boundary --plots.  # Boundary protocol: pass@k up to 256
+python analyze.py --tag boundary --plots   # Boundary protocol: pass@k up to 256
 ```
 
-This writes `results/boundary/`:
+Each writes `results/<tag>/`:
 - `summary.csv`: pass@k, mean tokens, truncation, AES, per run, checkpoint and benchmark
 - `summary_by_arm.csv`: mean and std over seeds
 - `by_level.csv`: MATH500 results by difficulty level
-- Plots: pass@k curves, metrics over training, training curves
+- `lost_gained.csv`: problems the base model solved but a method never did (lost) and the reverse (gained), at each run's last checkpoint, overall and per level. `lost_beyond_chance` counts only losses that are unlikely to be luck. Use it with `--tag boundary`; with 4 samples per problem almost every loss could be chance.
+- Plots (`--plots`):
+  - `tradeoff_<bench>.png`: accuracy vs length, one point per method (up and left is better)
+  - `passk_<bench>.png`: pass@k curves vs the base model
+  - `over_training_<bench>.png`: pass@1, pass@max, length and entropy at each checkpoint
+  - `by_level_<bench>.png`: pass@1, pass@max and length per MATH difficulty level
+  - `training_curves.png`: reward, length and entropy during training
 
 ## 7. GPU plan
 
