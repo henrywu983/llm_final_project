@@ -365,6 +365,66 @@ def make_plots(df: pd.DataFrame, root: Path, out: Path, by_level: pd.DataFrame |
     print(f"[plots] saved to {out}/")
 
 
+def place_labels(ax, points, labels, fontsize=8):
+    """Label scatter points without overlaps.
+
+    For each point (densest first), try offsets in growing rings around it and keep
+    the first spot whose text box hits no other label, no marker and stays inside the
+    axes. Labels pushed far from their point get a thin leader line.
+    """
+    fig = ax.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    to_disp = ax.transData.transform
+    disp_pts = [to_disp(p) for p in points]
+    px = fig.dpi / 72.0                                   # display pixels per typographic point
+    marker_r = 8 * px                                     # keep labels clear of every marker
+    ax_box = ax.get_window_extent(renderer)
+    placed = []
+
+    def overlaps(b, others):
+        return any(b.x0 < o.x1 and b.x1 > o.x0 and b.y0 < o.y1 and b.y1 > o.y0 for o in others)
+
+    def hits_marker(b):
+        return any(b.x0 - marker_r < x < b.x1 + marker_r and b.y0 - marker_r < y < b.y1 + marker_r
+                   for x, y in disp_pts)
+
+    # crowded points first, so they get the closest free spots
+    def crowd(i):
+        return -sum(1 for j, q in enumerate(disp_pts) if j != i and abs(q[0] - disp_pts[i][0]) + abs(q[1] - disp_pts[i][1]) < 60 * px)
+    order = sorted(range(len(points)), key=crowd)
+    directions = [(1, 0.4), (1, -1), (-1, 0.4), (-1, -1), (0, 1.3), (0, -1.6), (1, 1.3), (-1, 1.3), (1, -2), (-1, -2)]
+    for i in order:
+        best = None
+        for radius in (9, 16, 26, 38, 52):
+            for dx, dy in directions:
+                off = (dx * radius, dy * radius)
+                ha = "left" if dx > 0 else ("right" if dx < 0 else "center")
+                t = ax.annotate(labels[i], points[i], xytext=off, textcoords="offset points",
+                                ha=ha, va="center", fontsize=fontsize, color="#333")
+                b = t.get_window_extent(renderer).expanded(1.08, 1.15)
+                ok = (not overlaps(b, placed) and not hits_marker(b)
+                      and ax_box.x0 <= b.x0 and b.x1 <= ax_box.x1 and ax_box.y0 <= b.y0 and b.y1 <= ax_box.y1)
+                if ok:
+                    best = (t, b, (radius, dx, dy))
+                    break
+                t.remove()
+            if best:
+                break
+        if best is None:                                   # nothing free: fall back to the far ring
+            t = ax.annotate(labels[i], points[i], xytext=(52, 52), textcoords="offset points",
+                            ha="left", va="center", fontsize=fontsize, color="#333")
+            best = (t, t.get_window_extent(renderer), (52, 1, 1))
+        t, b, slot = best
+        if slot != (9, 1, 0.4):                            # not in the usual right-hand spot: add a leader line
+            xy, ha = t.xyann, t.get_ha()
+            t.remove()
+            ax.annotate(labels[i], points[i], xytext=xy, textcoords="offset points",
+                        ha=ha, va="center", fontsize=fontsize, color="#333", zorder=3,
+                        arrowprops=dict(arrowstyle="-", color="#888", lw=0.8, shrinkA=1, shrinkB=5))
+        placed.append(b)
+
+
 def plot_tradeoff(plt, d: pd.DataFrame, bench: str, out: Path) -> None:
     """Accuracy vs length at each arm's last checkpoint; up-and-left is better."""
     last = last_checkpoint(d)
@@ -372,7 +432,8 @@ def plot_tradeoff(plt, d: pd.DataFrame, bench: str, out: Path) -> None:
                                 xs=("mean_tokens", "std"), ys=("pass@1", "std"), n=("run", "count"))
     if g.empty:
         return
-    fig, ax = plt.subplots(figsize=(5.2, 4))
+    fig, ax = plt.subplots(figsize=(5.6, 4.8))
+    points, labels = [], []
     for arm in sorted(g.index, key=arm_sort_key):
         r = g.loc[arm]
         color = arm_color(arm)
@@ -381,16 +442,19 @@ def plot_tradeoff(plt, d: pd.DataFrame, bench: str, out: Path) -> None:
         ax.scatter(r.x, 100 * r.y, s=220 if arm == "base" else 70, color=color,
                    marker="*" if arm == "base" else ("s" if is_noscale(arm) else "o"),
                    edgecolor="white", linewidth=1.2, zorder=2, label=arm)
-        short = re.match(r"arm\d+n?", arm).group(0) if re.match(r"arm\d+", arm) else arm
-        ax.annotate(short, (r.x, 100 * r.y), xytext=(7, 4), textcoords="offset points", fontsize=8, color="#333")
+        m = re.match(r"arm\d+n?", arm)
+        points.append((r.x, 100 * r.y))
+        labels.append(m.group(0) if m else arm)
     ax.set_xlabel("mean response length (tokens)")
     ax.set_ylabel("pass@1 (%)")
     ax.set_title(f"{bench}: accuracy vs length (last checkpoint)\nup and left is better", fontsize=9)
     ax.grid(color="#e5e5e5", lw=0.6)
-    ax.margins(x=0.15, y=0.15)
-    ax.legend(fontsize=7, loc="best")
+    ax.margins(x=0.18, y=0.18)
+    # legend below the plot, so it never covers points or labels
+    ax.legend(fontsize=7, loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=3, frameon=False)
     fig.tight_layout()
-    fig.savefig(out / f"tradeoff_{bench}.png", dpi=150)
+    place_labels(ax, points, labels)
+    fig.savefig(out / f"tradeoff_{bench}.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
