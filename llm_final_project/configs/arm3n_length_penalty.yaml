@@ -1,0 +1,12 @@
+# Arm 3n: uniform length penalty (arm 3) with scale_rewards: none.
+# Identical to arm3_length_penalty.yaml except that GRPO no longer divides each question's
+# advantages by the std of its 8 rewards. Tests whether that division ("zoom")
+# causes the length collapse: on all-correct questions the tiny length
+# differences were stretched to the size of right-vs-wrong.
+inherit: arm3_length_penalty.yaml
+
+experiment:
+  name: arm3n_length_penalty
+
+grpo:
+  scale_rewards: none
