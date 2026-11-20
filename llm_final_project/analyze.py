@@ -57,9 +57,18 @@ def arm_color(arm: str) -> str:
     return ARM_COLORS[(int(m.group(1)) - 1) % len(ARM_COLORS)] if m else "#444444"
 
 
+def is_noscale(arm: str) -> bool:
+    """Variants like arm3n_* (same method, scale_rewards: none): same colour as the parent, dotted/square."""
+    return re.match(r"arm\d+n_", arm) is not None
+
+
+def line_style(arm: str) -> str:
+    return "--" if arm == "base" else (":" if is_noscale(arm) else "-")
+
+
 def arm_sort_key(arm: str):
     m = re.match(r"arm(\d+)", arm)
-    return (0, 0, arm) if arm == "base" else (1, int(m.group(1)) if m else 99, arm)
+    return (0, 0, 0, arm) if arm == "base" else (1, int(m.group(1)) if m else 99, is_noscale(arm), arm)
 
 
 def last_checkpoint(d: pd.DataFrame) -> pd.DataFrame:
@@ -269,8 +278,7 @@ def make_plots(df: pd.DataFrame, root: Path, out: Path, by_level: pd.DataFrame |
         for arm, a in sorted(d.groupby("arm"), key=lambda t: arm_sort_key(t[0])):
             last = last_checkpoint(a)
             ys = [last[f"pass@{k}"].mean() for k in ks]
-            ax.plot(ks, ys, marker="o", ms=3, label=arm, color=arm_color(arm),
-                    linestyle="--" if arm == "base" else "-")
+            ax.plot(ks, ys, marker="o", ms=3, label=arm, color=arm_color(arm), linestyle=line_style(arm))
         ax.set_xscale("log", base=2)
         ax.set_xlabel("k (samples)")
         ax.set_ylabel("pass@k")
@@ -289,7 +297,7 @@ def make_plots(df: pd.DataFrame, root: Path, out: Path, by_level: pd.DataFrame |
             g = a.groupby("step")[cols].mean()
             for ax, col in zip(axes, cols):
                 s = g[col].dropna()
-                ax.plot(s.index, s, marker="o", ms=3, label=arm, color=arm_color(arm))
+                ax.plot(s.index, s, marker="o", ms=3, label=arm, color=arm_color(arm), linestyle=line_style(arm))
         base = d[d.arm == "base"]
         for ax, col in zip(axes, cols):
             if not base.empty and base[col].notna().any():
@@ -324,7 +332,7 @@ def make_plots(df: pd.DataFrame, root: Path, out: Path, by_level: pd.DataFrame |
                 continue
             found[i] = True
             ax.plot(s.step, s[col].rolling(10, min_periods=1).mean(), label=run_dir.name,
-                    color=arm_color(run_dir.name))
+                    color=arm_color(run_dir.name), linestyle=line_style(run_dir.name))
             ax.set_title(title)
             ax.set_xlabel("training step")
     # Training did not log entropy: fall back to the evaluation estimate at each checkpoint.
@@ -337,7 +345,8 @@ def make_plots(df: pd.DataFrame, root: Path, out: Path, by_level: pd.DataFrame |
             g = a.groupby("step")["entropy"].mean().sort_index()
             if not base.empty:  # start each curve from the untrained model at step 0
                 g = pd.concat([pd.Series({0: base["entropy"].mean()}), g])
-            axes[2].plot(g.index, g.values, marker="o", ms=3, label=run, color=arm_color(run))
+            axes[2].plot(g.index, g.values, marker="o", ms=3, label=run, color=arm_color(run),
+                         linestyle=line_style(run))
         if not base.empty:
             axes[2].axhline(base["entropy"].mean(), color="gray", linestyle="--", label="base")
         axes[2].set_title(f"entropy (eval at checkpoints, {bench})")
@@ -370,8 +379,9 @@ def plot_tradeoff(plt, d: pd.DataFrame, bench: str, out: Path) -> None:
         if r.n > 1:  # several seeds: show the spread
             ax.errorbar(r.x, 100 * r.y, xerr=r.xs, yerr=100 * r.ys, color=color, lw=1, capsize=3, zorder=1)
         ax.scatter(r.x, 100 * r.y, s=220 if arm == "base" else 70, color=color,
-                   marker="*" if arm == "base" else "o", edgecolor="white", linewidth=1.2, zorder=2, label=arm)
-        short = re.match(r"arm\d+", arm).group(0) if re.match(r"arm\d+", arm) else arm
+                   marker="*" if arm == "base" else ("s" if is_noscale(arm) else "o"),
+                   edgecolor="white", linewidth=1.2, zorder=2, label=arm)
+        short = re.match(r"arm\d+n?", arm).group(0) if re.match(r"arm\d+", arm) else arm
         ax.annotate(short, (r.x, 100 * r.y), xytext=(7, 4), textcoords="offset points", fontsize=8, color="#333")
     ax.set_xlabel("mean response length (tokens)")
     ax.set_ylabel("pass@1 (%)")
@@ -397,7 +407,7 @@ def plot_by_level(plt, lv: pd.DataFrame, bench: str, kmax: int, out: Path) -> No
         g = a.groupby("level")[[c[0] for c in cols]].mean().sort_index()
         for ax, (col, _, scale) in zip(axes, cols):
             ax.plot(g.index, g[col] * scale, marker="o", ms=4, lw=2, label=arm, color=arm_color(arm),
-                    linestyle="--" if arm == "base" else "-", mfc="white" if arm == "base" else None)
+                    linestyle=line_style(arm), mfc="white" if arm == "base" else None)
     for ax, (_, title, _) in zip(axes, cols):
         ax.set_title(title, fontsize=9)
         ax.set_xlabel("difficulty level")
