@@ -105,6 +105,7 @@ python -m pytest -q tests/        # 31 checks, CPU only, about 10 seconds
 | 4 | `configs/arm4_da_gate.yaml` | Our difficulty-aware (DA) penalty: arm 3's penalty, switched off on hard questions (fewer than `tau` = 50% of the 8 answers correct) |
 | 5 | `configs/arm5_ddca_scaled.yaml` | DDCA-inspired: arm 3's penalty multiplied by the share of correct answers (fades smoothly on hard questions) |
 | 6 | `configs/arm6_ddca.yaml` | DDCA (Peng et al., 2026): difficulty-scaled length advantage among correct answers + RLOO accuracy advantage, built into the reward (`scale_rewards: none`, correctness × 8/7) |
+| 3n, 4n, 5n | `configs/arm3n_length_penalty.yaml`, `arm4n_da_gate.yaml`, `arm5n_ddca_scaled.yaml` | Arms 3, 4, 5 with `scale_rewards: none` (no division by the group std). Control for the length collapse; plotted in the parent arm's colour with dotted lines / square markers |
 
 All shared settings (model, data, steps, batch, lengths, LoRA, evaluation) live in `configs/base.yaml`. **Don't edit it for your own run**, since every arm must use the same values.
 
